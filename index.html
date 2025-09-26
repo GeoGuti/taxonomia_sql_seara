@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Query — Taxonomia</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .card-base { margin-bottom: 1rem; }
+    .remove-base { cursor: pointer; color: #c00; }
+    .small-muted { font-size: .85rem; color: #6c757d; }
+    .divider { height:1px;background:#e9ecef;margin:1rem 0; }
+    textarea#queryGerada { font-family: monospace; white-space: pre; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+<div class="container py-4">
+  <h1 class="mb-4">Gerador de Query SFMC — Taxonomia</h1>
+
+  <!-- Bases (repeatable) -->
+  <div class="mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="mb-0">Bases (pode adicionar + de 1 — serão unidas com UNION)</h5>
+      <button id="addBaseBtn" class="btn btn-sm btn-outline-primary">+ Adicionar Base</button>
+    </div>
+    <div id="basesContainer"></div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Canal / Campos -->
+  <div class="row g-3 mb-3">
+    <div class="col-md-6">
+      <label class="form-label">Canal</label>
+      <select class="form-select" id="canal">
+        <option value="email">Email</option>
+        <option value="sms">SMS</option>
+        <option value="wpp">WhatsApp</option>
+      </select>
+      <div class="small-muted mt-1">Escolha o canal; SMS/WPP ativa controles específicos.</div>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Campos retornados</label>
+      <select class="form-select" id="camposRetornados">
+        <option value="email">EmailAddress</option>
+        <option value="email_phone">EmailAddress + FormattedE164PhoneNumber</option>
+      </select>
+      <div class="small-muted mt-1">Se SMS/WPP, o campo será forçado para Email + Phone.</div>
+    </div>
+  </div>
+
+  <div class="form-check mb-3">
+    <input class="form-check-input" type="checkbox" id="variavelNome">
+    <label class="form-check-label" for="variavelNome">Puxar variável nome (FirstName)</label>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Não existe em -->
+  <div class="mb-3">
+    <label class="form-label">Não existe em (not exists)</label>
+    <select multiple class="form-select" id="naoExisteEm">
+      <option value="tb_usuariosunificados_kit_festa">Kit Festa</option>
+      <option value="tb_usuariosunificados_foodservice">Food Service</option>
+      <option value="tb_usuariosunificados_seara_varejista">Seara Varejista</option>
+      <option value="tb_dc_conarh_25_televendas">Conarh (conarh 25)</option>
+      <option value="TB_ABRCHE_24">ABRCHE 2024</option>
+    </select>
+    <div class="small-muted mt-1">DEs que devem ser verificadas via NOT EXISTS.</div>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-md-6">
+      <label class="form-label">Origem — Conarh (LIKE / NOT LIKE / vazio)</label>
+      <select class="form-select" id="origemConarhTipo">
+        <option value="">—</option>
+        <option value="like">LIKE</option>
+        <option value="notlike">NOT LIKE</option>
+      </select>
+      <input type="text" id="origemConarhTxt" class="form-control mt-2" placeholder="%conarh%" />
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Origem — ABRCHE (LIKE / NOT LIKE / vazio)</label>
+      <select class="form-select" id="origemAbrcheTipo">
+        <option value="">—</option>
+        <option value="like">LIKE</option>
+        <option value="notlike">NOT LIKE</option>
+      </select>
+      <input type="text" id="origemAbrcheTxt" class="form-control mt-2" placeholder="%Feira ABRCHE 2024%" />
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Bounce / Compradores / Supressao -->
+  <div class="row g-3 mb-3">
+    <div class="col-md-4">
+      <label class="form-label">Filtro de Bounce</label>
+      <select class="form-select" id="bounce">
+        <option value="none">Nenhum</option>
+        <option value="all">Todos (exclui qualquer bounce)</option>
+        <option value="hard">Apenas Hard Bounce</option>
+      </select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Excluir compradores</label>
+      <select class="form-select" id="excluirCompradores">
+        <option value="true">Sempre (NOT EXISTS tb_compradores_kit_festa_2025)</option>
+        <option value="false">Não aplicar</option>
+      </select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Excluir supressão</label>
+      <select class="form-select" id="excluirSupressao">
+        <option value="true">Sempre (NOT EXISTS tb_supressao_disparo)</option>
+        <option value="false">Não aplicar</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="small-muted mb-3">Validações de email (status subscriber ativo, pattern, não mailinator/temp-mail) aplicadas automaticamente.</div>
+
+  <div class="divider"></div>
+
+  <!-- SMS/WPP area (aparece só quando canal = sms ou wpp) -->
+  <div id="smsWppArea" class="mb-3 hidden">
+    <h5>Regras SMS / WhatsApp</h5>
+
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" id="telefoneValidoCheck">
+      <label class="form-check-label" for="telefoneValidoCheck">Aplicar validação de telefone (LEN=13, quinto dígito = 9, DDD válido)</label>
+      <div class="small-muted">Este checkbox é forçado para SMS/WPP (padrão seguro).</div>
+    </div>
+
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" id="excluirTrackingWpp">
+      <label class="form-check-label" for="excluirTrackingWpp">Excluir quem teve envio WPP com status != 'failed' (TB_TRACKING_TELEVENDAS_B2B)</label>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label">Não recebeu SMS (aplica _SMSMessageTracking e _UndeliverableSms)</label>
+        <select class="form-select" id="naoRecebeuSmsOpt">
+          <option value="false">Não aplicar</option>
+          <option value="true">Aplicar (NOT EXISTS)</option>
+        </select>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Não recebeu WPP (aplica TB tracking)</label>
+        <select class="form-select" id="naoRecebeuWppOpt">
+          <option value="false">Não aplicar</option>
+          <option value="true">Aplicar (NOT EXISTS)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="mt-3">
+      <label class="form-label">Bases de tracking SMS/WPP (opcional)</label>
+      <input class="form-control mb-2" id="nomeBaseSmsNoDia" placeholder="Nome da base SMS do dia (ex: tb_sms_kit-festa_televendas_b2b_desengajados_7d)" />
+      <input class="form-control" id="nomeBaseWppNoDia" placeholder="Nome da base WPP do dia (ex: tb_wpp_kit-festa_televendas_b2b_cadastrados)" />
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Engajamento / abertura -->
+  <div class="mb-3">
+    <h5>Engajamento / Abertura</h5>
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" id="naoAbriuCheck">
+      <label class="form-check-label" for="naoAbriuCheck">Selecionar quem NÃO abriu</label>
+    </div>
+
+    <div class="row g-3 align-items-center mb-2">
+      <div class="col-md-4">
+        <label class="form-label">Período de engajamento (dias)</label>
+        <input type="number" class="form-control" id="diasEngajamento" placeholder="Ex: 15, 30, 90, 180" />
+      </div>
+      <div class="col-md-8">
+        <label class="form-label">Preset rápidos</label>
+        <div>
+          <button class="btn btn-sm btn-outline-secondary me-1 preset-eng" data-days="7">7d</button>
+          <button class="btn btn-sm btn-outline-secondary me-1 preset-eng" data-days="15">15d</button>
+          <button class="btn btn-sm btn-outline-secondary me-1 preset-eng" data-days="30">30d</button>
+          <button class="btn btn-sm btn-outline-secondary me-1 preset-eng" data-days="90">90d</button>
+          <button class="btn btn-sm btn-outline-secondary me-1 preset-eng" data-days="180">180d</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="small-muted">Se marcar "Não abriu" + dias -> gera NOT EXISTS com filtro por dias. Se marcar "Não abriu" sem dias -> NOT EXISTS qualquer abertura.</div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Filtros adicionais / bases de televendas -->
+  <div class="mb-3">
+    <h5>Filtros adicionais e exclusões (novos/ativos/manual)</h5>
+    <div class="mb-2">
+      <label class="form-label">Bases de televendas / ativos (NOT EXISTS para "novos" ou EXISTS para "televendas/ativos")</label>
+      <input class="form-control mb-2" id="baseListaTelevendas1" placeholder="tb_dc_Status_Lista_Televendas_0725" />
+      <input class="form-control mb-2" id="baseListaTelevendas2" placeholder="tb_Lista_ativos_0825_TELEVENDA" />
+      <input class="form-control mb-2" id="baseConarh25" placeholder="tb_dc_conarh_25_televendas" />
+      <input class="form-control mb-2" id="baseAbrche24" placeholder="TB_ABRCHE_24" />
+      <div class="small-muted">Preencha para aplicar NOT EXISTS (novos) ou EXISTS (televendas/ativos).</div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Ações -->
+  <div class="mb-4 d-flex gap-2">
+    <button id="gerarQuery" class="btn btn-primary">Gerar Query</button>
+    <button id="copiarQuery" class="btn btn-outline-secondary">Copiar Query</button>
+    <button id="limparQuery" class="btn btn-light">Limpar</button>
+  </div>
+
+  <div class="mb-4">
+    <label class="form-label">Query Gerada</label>
+    <textarea id="queryGerada" class="form-control" rows="16" readonly></textarea>
+  </div>
+
+  <footer class="small text-muted mb-4">
+    Notas: SMS/WPP força retorno com telefone e validação de número. Segmentos aplicam EXISTS/NOT EXISTS conforme bases preenchidas.
+  </footer>
+</div>
+
+<!-- Base block template -->
+<template id="baseBlockTpl">
+  <div class="card card-base border-1 p-3">
+    <div class="d-flex justify-content-between align-items-start">
+      <div style="width:100%">
+        <h6 class="mb-2 base-title">Base <span class="base-index"></span></h6>
+        <div class="row g-2">
+          <div class="col-md-5">
+            <label class="form-label">Base Principal</label>
+            <select class="form-select base-principal">
+              <option value="tb_usuariosunificados_kit_festa">Kit Festa</option>
+              <option value="tb_usuariosunificados_foodservice">Food Service</option>
+              <option value="tb_usuariosunificados_seara_varejista">Seara Varejista</option>
+              <option value="custom">Outra (digitar abaixo)</option>
+            </select>
+            <input class="form-control mt-2 base-principal-custom d-none" placeholder="Nome da base (ex: tb_usuariosunificados_xxx)"/>
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Segmento</label>
+            <select class="form-select base-segmento">
+              <option value="">—</option>
+              <option value="ativos">Ativos</option>
+              <option value="televendas">Televendas</option>
+              <option value="inativos">Inativos</option>
+              <option value="novos">Novos</option>
+              <option value="engajados">Engajados</option>
+              <option value="nao_engajados">Não Engajados</option>
+              <option value="manual">Base manual</option>
+            </select>
+          </div>
+
+          <div class="col-md-3">
+            <label class="form-label">Selecionar campos</label>
+            <select class="form-select base-campos">
+              <option value="email">EmailAddress</option>
+              <option value="email_phone">EmailAddress + FormattedE164PhoneNumber</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row g-2 mt-2">
+          <div class="col-md-4 form-check">
+            <input class="form-check-input base-kitfesta-flag d-none" type="checkbox">
+            <label class="form-check-label base-kitfesta-label d-none">Kit_Festa_Televendas = 'true'</label>
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Origem LIKE (opcional)</label>
+            <input type="text" class="form-control base-origem-like" placeholder="%Feira ABRCHE 2024%"/>
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Origem NOT LIKE (opcional)</label>
+            <input type="text" class="form-control base-origem-notlike" placeholder="%conarh%"/>
+          </div>
+        </div>
+
+        <div class="mt-2 small-muted">Use "Segmento" para aplicar filtros específicos (novos, ativos, televendas, etc.).</div>
+      </div>
+
+      <div class="text-end">
+        <button class="btn btn-sm btn-outline-danger remove-base">Remover</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+/* ---------- util DOM ---------- */
+const $ = (sel, root=document) => root.querySelector(sel);
+const $all = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+/* ---------- UI: adicionar base e eventos ---------- */
+const basesContainer = $('#basesContainer');
+const tpl = $('#baseBlockTpl');
+const addBaseBtn = $('#addBaseBtn');
+const canalEl = $('#canal');
+const camposRetEl = $('#camposRetornados');
+const smsWppArea = $('#smsWppArea');
+const telefoneValidoCheckEl = $('#telefoneValidoCheck');
+
+function addBase() {
+  const clone = tpl.content.cloneNode(true);
+  basesContainer.appendChild(clone);
+  refreshBaseIndexes();
+  attachEventsToLatest();
+}
+
+function refreshBaseIndexes() {
+  $all('#basesContainer .card-base').forEach((c, i) => {
+    c.querySelector('.base-index').textContent = i+1;
+  });
+}
+
+function attachEventsToLatest() {
+  const card = $all('#basesContainer .card-base').slice(-1)[0];
+  if (!card) return;
+
+  const sel = $('.base-principal', card);
+  const custom = $('.base-principal-custom', card);
+  const kitCheck = $('.base-kitfesta-flag', card);
+  const kitLabel = $('.base-kitfesta-label', card);
+  const removeBtn = $('.remove-base', card);
+
+  sel.addEventListener('change', (e) => {
+    if (e.target.value === 'custom') custom.classList.remove('d-none');
+    else custom.classList.add('d-none');
+
+    if (e.target.value === 'tb_usuariosunificados_kit_festa') {
+      kitCheck.classList.remove('d-none');
+      kitLabel.classList.remove('d-none');
+      kitCheck.checked = true;
+    } else {
+      kitCheck.classList.add('d-none');
+      kitLabel.classList.add('d-none');
+      kitCheck.checked = false;
+    }
+  });
+
+  removeBtn.addEventListener('click', (e) => {
+    e.target.closest('.card-base').remove();
+    refreshBaseIndexes();
+  });
+}
+
+addBaseBtn.addEventListener('click', addBase);
+addBase(); // initial
+
+// preset engajamento
+$all('.preset-eng').forEach(btn => btn.addEventListener('click', () => { $('#diasEngajamento').value = btn.dataset.days; }));
+
+/* ---------- comportamento canal (mostrar/ocultar SMS area, forçar camposRetornados e validação) ---------- */
+function handleCanalChange() {
+  const canal = canalEl.value;
+  if (canal === 'sms' || canal === 'wpp') {
+    smsWppArea.classList.remove('hidden');
+    // force fields
+    camposRetEl.value = 'email_phone';
+    camposRetEl.disabled = true;
+    telefoneValidoCheckEl.checked = true;
+    telefoneValidoCheckEl.disabled = true;
+  } else {
+    smsWppArea.classList.add('hidden');
+    camposRetEl.disabled = false;
+    // don't force telephone validation for email
+    telefoneValidoCheckEl.disabled = false;
+  }
+}
+canalEl.addEventListener('change', handleCanalChange);
+handleCanalChange();
+
+/* ---------- coletar opções ---------- */
+function coletarOpcoesDoDOM() {
+  const bases = [];
+  $all('#basesContainer .card-base').forEach(card => {
+    const baseSel = $('.base-principal', card).value;
+    const baseCustom = $('.base-principal-custom', card).value.trim();
+    const segmento = $('.base-segmento', card).value;
+    const campos = $('.base-campos', card).value; // 'email' or 'email_phone'
+    const kitfestaCheckbox = $('.base-kitfesta-flag', card);
+    const kitfesta = kitfestaCheckbox ? kitfestaCheckbox.checked || baseSel === 'tb_usuariosunificados_kit_festa' : (baseSel === 'tb_usuariosunificados_kit_festa');
+    const origemLike = $('.base-origem-like', card).value.trim();
+    const origemNotLike = $('.base-origem-notlike', card).value.trim();
+
+    const nome = baseSel === 'custom' ? baseCustom : baseSel;
+    if (!nome) return; // skip empty custom base
+
+    bases.push({
+      nome,
+      segmento,
+      campos,
+      kitfesta,
+      origemLike,
+      origemNotLike
+    });
+  });
+
+  const canais = [ $('#canal').value ];
+  const incluiNome = $('#variavelNome').checked;
+  const naoExisteEm = $all('#naoExisteEm option:checked').map(o => o.value);
+  const bounce = $('#bounce').value; // none | all | hard
+  const excluirCompradores = $('#excluirCompradores').value === 'true';
+  const excluirSupressao = $('#excluirSupressao').value === 'true';
+  const telefoneValidoCheck = $('#telefoneValidoCheck').checked;
+  const excluirTrackingWpp = $('#excluirTrackingWpp').checked;
+  const naoRecebeuSmsOpt = $('#naoRecebeuSmsOpt').value === 'true';
+  const naoRecebeuWppOpt = $('#naoRecebeuWppOpt').value === 'true';
+  const baseSmsNoDia = $('#nomeBaseSmsNoDia').value.trim();
+  const baseWppNoDia = $('#nomeBaseWppNoDia').value.trim();
+  const naoAbriuCheck = $('#naoAbriuCheck').checked;
+  const diasEngajamento = parseInt($('#diasEngajamento').value) || null;
+
+  const baseListaTelevendas1 = $('#baseListaTelevendas1').value.trim();
+  const baseListaTelevendas2 = $('#baseListaTelevendas2').value.trim();
+  const baseConarh25 = $('#baseConarh25').value.trim();
+  const baseAbrche24 = $('#baseAbrche24').value.trim();
+
+  return {
+    bases,
+    canais,
+    incluiNome,
+    naoExisteEm,
+    bounce,
+    excluirCompradores,
+    excluirSupressao,
+    telefoneValidoCheck,
+    excluirTrackingWpp,
+    naoRecebeuSmsOpt,
+    naoRecebeuWppOpt,
+    baseSmsNoDia,
+    baseWppNoDia,
+    naoAbriuCheck,
+    diasEngajamento,
+    baseListaTelevendas1,
+    baseListaTelevendas2,
+    baseConarh25,
+    baseAbrche24
+  };
+}
+
+/* ---------- SQL builder ---------- */
+function escapeSqlLiteral(s) { return s.replace(/'/g, "''"); }
+
+function gerarQuery(options) {
+  const blocos = [];
+  let aliasCode = 'a'.charCodeAt(0);
+
+  for (const b of options.bases) {
+    const alias = String.fromCharCode(aliasCode);
+    const selectFields = [`${alias}.EmailAddress`];
+    if (options.incluiNome) selectFields.push(`${alias}.FirstName`);
+    if ((options.canais.includes('sms') || options.canais.includes('wpp')) && b.campos === 'email_phone') {
+      selectFields.push(`${alias}.FormattedE164PhoneNumber`);
+    }
+
+    const from = `FROM ${b.nome} ${alias}`;
+    const joins = [`LEFT JOIN _Subscribers AS subb ON ${alias}.EmailAddress = subb.EmailAddress`];
+
+    const where = [`${alias}.Tipo = 'b2b'`];
+    if (b.kitfesta) where.push(`${alias}.Kit_Festa_Televendas = 'true'`);
+
+    // per-base origem LIKE/NOT LIKE
+    if (b.origemLike) where.push(`${alias}.Origem LIKE '${escapeSqlLiteral(b.origemLike)}'`);
+    if (b.origemNotLike) where.push(`${alias}.Origem NOT LIKE '${escapeSqlLiteral(b.origemNotLike)}'`);
+
+    // global naoExisteEm (NOT EXISTS)
+    if (Array.isArray(options.naoExisteEm) && options.naoExisteEm.length) {
+      options.naoExisteEm.forEach(de => {
+        where.push(`NOT EXISTS (SELECT 1 FROM ${de} x WHERE x.EmailAddress = ${alias}.EmailAddress)`);
+      });
+    }
+
+    // Segmentos (novos, televendas, ativos, inativos, engajados, nao_engajados)
+    if (b.segmento === 'novos') {
+      if (options.baseListaTelevendas1) where.push(`NOT EXISTS (SELECT 1 FROM ${options.baseListaTelevendas1} a WHERE a.EmailAddress = ${alias}.EmailAddress)`);
+      if (options.baseListaTelevendas2) where.push(`NOT EXISTS (SELECT 1 FROM ${options.baseListaTelevendas2} l WHERE l.EmailAddress = ${alias}.EmailAddress)`);
+      if (options.baseConarh25) where.push(`NOT EXISTS (SELECT 1 FROM ${options.baseConarh25} c WHERE c.EmailAddress = ${alias}.EmailAddress)`);
+      if (options.baseAbrche24) where.push(`NOT EXISTS (SELECT 1 FROM ${options.baseAbrche24} ab WHERE ab.EmailAddress = ${alias}.EmailAddress)`);
+    } else if (b.segmento === 'televendas') {
+      const conditions = [];
+      if (options.baseListaTelevendas1) conditions.push(`EXISTS (SELECT 1 FROM ${options.baseListaTelevendas1} a WHERE a.EmailAddress = ${alias}.EmailAddress)`);
+      if (options.baseListaTelevendas2) conditions.push(`EXISTS (SELECT 1 FROM ${options.baseListaTelevendas2} l WHERE l.EmailAddress = ${alias}.EmailAddress)`);
+      if (conditions.length) where.push(`(${conditions.join(' OR ')})`);
+    } else if (b.segmento === 'ativos') {
+      if (options.baseListaTelevendas2) where.push(`EXISTS (SELECT 1 FROM ${options.baseListaTelevendas2} l WHERE l.EmailAddress = ${alias}.EmailAddress)`);
+    } else if (b.segmento === 'inativos') {
+      if (options.baseListaTelevendas2) where.push(`NOT EXISTS (SELECT 1 FROM ${options.baseListaTelevendas2} l WHERE l.EmailAddress = ${alias}.EmailAddress)`);
+    } else if (b.segmento === 'engajados') {
+      const days = options.diasEngajamento || 180;
+      where.push(`EXISTS (
+  SELECT 1 FROM _Open o
+  JOIN _Subscribers s ON s.SubscriberKey = o.SubscriberKey
+  WHERE s.EmailAddress = ${alias}.EmailAddress
+  AND o.EventDate >= DATEADD(day, -${days}, GETDATE())
+)`);
+    } else if (b.segmento === 'nao_engajados') {
+      const days = options.diasEngajamento || 30;
+      where.push(`NOT EXISTS (
+  SELECT 1 FROM _Open o
+  JOIN _Subscribers s ON s.SubscriberKey = o.SubscriberKey
+  WHERE s.EmailAddress = ${alias}.EmailAddress
+  AND o.EventDate >= DATEADD(day, -${days}, GETDATE())
+)`);
+    } // manual => no special where
+
+    // compradores / supressao
+    where.push(`NOT EXISTS (SELECT 1 FROM tb_compradores_kit_festa_2025 e WHERE e.email = ${alias}.EmailAddress)`);
+    where.push(`NOT EXISTS (SELECT 1 FROM tb_supressao_disparo e WHERE e.email = ${alias}.EmailAddress)`);
+
+    // Bounce options
+    if (options.bounce === 'all') {
+      where.push(`NOT EXISTS (
+  SELECT 1 FROM _Bounce b
+  INNER JOIN _Subscribers subx ON b.SubscriberKey = subx.SubscriberKey
+  WHERE subx.EmailAddress = ${alias}.EmailAddress
+)`);
+    } else if (options.bounce === 'hard') {
+      where.push(`NOT EXISTS (
+  SELECT 1 FROM _Bounce b
+  INNER JOIN _Subscribers subx ON b.SubscriberKey = subx.SubscriberKey
+  WHERE subx.EmailAddress = ${alias}.EmailAddress
+  AND b.bouncetype = 'Hard Bounce'
+)`);
+    }
+
+    // Email validations
+    where.push(`(subb.status IS NULL OR subb.status = 'Active')`);
+    where.push(`${alias}.EmailAddress IS NOT NULL`);
+    where.push(`${alias}.EmailAddress NOT LIKE '% %'`);
+    where.push(`${alias}.EmailAddress LIKE '%@%.%.%'`);
+    where.push(`${alias}.EmailAddress NOT LIKE '%..%'`);
+    where.push(`${alias}.EmailAddress NOT LIKE '.%'`);
+    where.push(`${alias}.EmailAddress NOT LIKE '%@mailinator.com'`);
+    where.push(`${alias}.EmailAddress NOT LIKE '%@temp-mail.com'`);
+
+    // Telefone validations & SMS/WPP filters (if phone requested)
+    if ((options.canais.includes('sms') || options.canais.includes('wpp')) && b.campos === 'email_phone') {
+      if (options.telefoneValidoCheck) {
+        where.push(`LEN(${alias}.FormattedE164PhoneNumber) = 13`);
+        where.push(`SUBSTRING(${alias}.FormattedE164PhoneNumber,5,1) = '9'`);
+        where.push(`SUBSTRING(${alias}.FormattedE164PhoneNumber,4,2) IN ('68','82','96','92','97','71','73','74','75','77','85','88','61','27','28','62','64','98','99','65','66','67','31','32','33','34','35','37','38','91','93','94','83','41','42','43','44','45','46','81','87','86','89','21','22','24','84','51','53','54','55','69','95','47','48','49','11','12','13','14','15','16','17','18','19','79','63')`);
+      }
+      if (options.excluirTrackingWpp) {
+        where.push(`NOT EXISTS (SELECT 1 FROM TB_TRACKING_TELEVENDAS_B2B t WHERE t.mobileNumber = ${alias}.FormattedE164PhoneNumber AND t.Status != 'failed')`);
+      }
+      if (options.naoRecebeuSmsOpt && options.baseSmsNoDia) {
+        where.push(`NOT EXISTS (SELECT 1 FROM [${options.baseSmsNoDia}] s WHERE s.EmailAddress = ${alias}.EmailAddress)`);
+      }
+      if (options.naoRecebeuWppOpt && options.baseWppNoDia) {
+        where.push(`NOT EXISTS (SELECT 1 FROM [${options.baseWppNoDia}] w WHERE w.EmailAddress = ${alias}.EmailAddress)`);
+      }
+      // WhatsApp optout generic
+      where.push(`NOT EXISTS (SELECT 1 FROM tb_cp_optout o WHERE o.EmailAddress = ${alias}.EmailAddress)`);
+    }
+
+    // Final block assembly
+    const blockParts = [
+      `SELECT ${selectFields.join(', ')}`,
+      from,
+      ...joins,
+      `WHERE ${where.join('\n  AND ')}`
+    ];
+    blocos.push(blockParts.join('\n'));
+    aliasCode++;
+  } // for bases
+
+  if (!blocos.length) return '-- Nenhuma base válida selecionada.';
+
+  const headerSelect = `SELECT DISTINCT b.EmailAddress${options.incluiNome ? ', b.FirstName' : ''}${(options.canais.includes('sms') || options.canais.includes('wpp')) ? ', b.FormattedE164PhoneNumber' : ''}`;
+  const queryFinal = `${headerSelect}
+FROM (
+${blocos.join('\nUNION ALL\n')}
+) b;`;
+
+  return queryFinal;
+}
+
+/* ---------- botões ---------- */
+$('#gerarQuery').addEventListener('click', () => {
+  const opts = coletarOpcoesDoDOM();
+  const sql = gerarQuery(opts);
+  $('#queryGerada').value = sql;
+});
+
+$('#copiarQuery').addEventListener('click', async () => {
+  const q = $('#queryGerada').value;
+  if (!q) return alert('Query vazia.');
+  try {
+    await navigator.clipboard.writeText(q);
+    alert('Query copiada.');
+  } catch (err) {
+    alert('Falha ao copiar automaticamente. Selecione e copie manualmente.');
+  }
+});
+
+$('#limparQuery').addEventListener('click', () => { $('#queryGerada').value = ''; });
+
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
